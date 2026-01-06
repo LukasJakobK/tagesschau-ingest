@@ -88,9 +88,32 @@ async def main():
         GROUP BY source
         ORDER BY n DESC
     """)
+
     for row in rs.rows:
         src = row["source"] or "—"
-        out(f"{src:<20} {fmt(row['n'])}")
+        n = row["n"]
+        out(f"{src:<20} {fmt(n)}")
+
+        # Debug drilldown for suspicious small counts
+        if n <= 2:
+            rs2 = await db.execute("""
+                SELECT
+                    external_id,
+                    title,
+                    published_at,
+                    url,
+                    ingest_date
+                FROM articles
+                WHERE source = ?
+            """, [src])
+
+            for r in rs2.rows:
+                out(f"    → external_id={r['external_id']}")
+                out(f"      title={r['title']}")
+                out(f"      published_at={r['published_at']}")
+                out(f"      url={r['url']}")
+                out(f"      ingest_date={r['ingest_date']}")
+
 
     # --------------------------------------------------
     # 4) Distinct ressorts + count per ressort (distinct external_ids)
