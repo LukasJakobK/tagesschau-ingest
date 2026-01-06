@@ -1,0 +1,30 @@
+name: SQL Summaries
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"   # täglich 03:00 UTC (optional)
+
+jobs:
+  run-summaries:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install libsql-client
+
+      - name: Run SQL summaries
+        env:
+          TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python reports/sql_summaries.py
