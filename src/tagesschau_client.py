@@ -38,27 +38,25 @@ class TagesschauClient:
         self.turso_url = os.environ["TURSO_DB_URL"]
         self.turso_token = os.environ["TURSO_AUTH_TOKEN"]
 
-        self.db = self._connect()
+        self._db = None
 
-        self._ensure_table()
-
-        self.last_ingest_date = self._get_last_ingest_date()
-        self.effective_published_after = (
-            self.last_ingest_date
-            or self.api_config.get("published_after")
-        )
+        self.last_ingest_date = None
+        self.effective_published_after = None
 
     # ------------------------------------------------------------------
     # DB (Turso)
     # ------------------------------------------------------------------
-    def _connect(self):
-        return libsql_client.create_client(
-            self.turso_url,
-            auth_token=self.turso_token,
-        )
+    async def _connect(self):
+        if self._db is None:
+            self._db = libsql_client.create_client(
+                url=self.turso_url,
+                auth_token=self.turso_token,
+            )
+        return self._db
 
-    def _ensure_table(self):
-        self.db.execute(
+    async def _ensure_table(self):
+        db = await self._connect()
+        await db.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {self.table_name} (
                 external_id TEXT PRIMARY KEY,
@@ -80,6 +78,17 @@ class TagesschauClient:
             """
         )
 
+    async def _get_last_ingest_date(self) -> Optional[str]:
+        try:
+            db = await self._connect()
+            rs = await db.execute(
+                f"SELECT MAX(ingest_date) FROM {self.table_name}"
+            )
+            row = rs.rows[0] if rs.rows else None
+            return row[0] if row and row[0] else None
+        except Exception:
+            return None
+
     # ------------------------------------------------------------------
     # IO
     # ------------------------------------------------------------------
@@ -90,19 +99,6 @@ class TagesschauClient:
             raise FileNotFoundError(f"Config file not found: {path}")
         with path.open("r", encoding="utf-8") as f:
             return json.load(f)
-
-    # ------------------------------------------------------------------
-    # Watermark
-    # ------------------------------------------------------------------
-    def _get_last_ingest_date(self) -> Optional[str]:
-        try:
-            rs = self.db.execute(
-                f"SELECT MAX(ingest_date) FROM {self.table_name}"
-            )
-            row = rs.fetchone()
-            return row[0] if row and row[0] else None
-        except Exception:
-            return None
 
     # ------------------------------------------------------------------
     # Fetching
@@ -219,7 +215,15 @@ class TagesschauClient:
     # ------------------------------------------------------------------
     # Ingest
     # ------------------------------------------------------------------
-    def collect_and_store(self) -> None:
+    async def collect_and_store(self) -> None:
+        await self._ensure_table()
+
+        self.last_ingest_date = await self._get_last_ingest_date()
+        self.effective_published_after = (
+            self.last_ingest_date
+            or self.api_config.get("published_after")
+        )
+
         print(
             f"🕒 Ingest watermark (from ingest_date): "
             f"{self.effective_published_after or 'None'}"
@@ -238,6 +242,8 @@ class TagesschauClient:
         }
 
         ingest_ts = datetime.utcnow().isoformat(timespec="seconds")
+
+        db = await self._connect()
 
         for article in self.fetch_index():
             stats["api_returned"] += 1
@@ -271,7 +277,7 @@ class TagesschauClient:
                 cols = ", ".join(record.keys())
                 placeholders = ", ".join(["?"] * len(record))
 
-                self.db.execute(
+                await db.execute(
                     f"""
                     INSERT OR IGNORE INTO {self.table_name}
                     ({cols}) VALUES ({placeholders})

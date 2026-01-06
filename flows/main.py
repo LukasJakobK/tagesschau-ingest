@@ -1,6 +1,8 @@
+import asyncio
 from src.tagesschau_client import TagesschauClient
 
-if __name__ == "__main__":
+
+async def main():
     client = TagesschauClient(
         api_config_path="config/api_config.json",
         regions_path="config/regions.json",
@@ -9,4 +11,9 @@ if __name__ == "__main__":
         filters_path="config/filters.json",
     )
 
-    client.collect_and_store()
+    await client.collect_and_store()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+

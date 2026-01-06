@@ -26,4 +26,4 @@ jobs:
           TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
-          python Docker_Container/flows/healthcheck.py
+          python flows/healthcheck.py
