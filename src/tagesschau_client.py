@@ -2,6 +2,7 @@ import json
 import sqlite3
 import requests
 import re
+import os
 from html import unescape
 from pathlib import Path
 from datetime import datetime
@@ -19,7 +20,6 @@ class TagesschauClient:
         source_regions_path: str,
         url_region_keywords_path: str,
         filters_path: str,
-        db_path: str,
         table_name: str = "articles",
     ) -> None:
         self.api_config = self._load_json(api_config_path)
@@ -32,14 +32,26 @@ class TagesschauClient:
         self.base_detail_url = self.api_config["base_detail_url"]
         self.timeout = self.api_config.get("timeout", 10)
 
-        self.db_path = Path(db_path).expanduser().resolve()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.table_name = table_name
+
+        # Turso / libSQL
+        self.turso_url = os.environ["TURSO_DB_URL"]
+        self.turso_token = os.environ["TURSO_AUTH_TOKEN"]
 
         self.last_ingest_date = self._get_last_ingest_date()
         self.effective_published_after = (
             self.last_ingest_date
             or self.api_config.get("published_after")
+        )
+
+    # ------------------------------------------------------------------
+    # DB Connection (Turso)
+    # ------------------------------------------------------------------
+    def _connect(self):
+        return sqlite3.connect(
+            f"file:{self.turso_url}?authToken={self.turso_token}",
+            uri=True,
+            check_same_thread=False,
         )
 
     # ------------------------------------------------------------------
@@ -57,17 +69,13 @@ class TagesschauClient:
     # Watermark
     # ------------------------------------------------------------------
     def _get_last_ingest_date(self) -> Optional[str]:
-        if not self.db_path.exists():
-            return None
-
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._connect() as conn:
                 cur = conn.cursor()
                 cur.execute(f"SELECT MAX(ingest_date) FROM {self.table_name}")
                 row = cur.fetchone()
                 return row[0] if row and row[0] else None
         except sqlite3.OperationalError:
-            # Tabelle existiert noch nicht
             return None
 
     # ------------------------------------------------------------------
@@ -153,7 +161,6 @@ class TagesschauClient:
         if idx + 1 < len(segments):
             candidate = segments[idx + 1]
 
-            # "_" → Landkreis/Region, oder kein "-" → Stadt (ein Wort)
             if "_" in candidate or "-" not in candidate:
                 subregion = candidate.replace("_", " ").split("-")[0].title()
 
@@ -207,7 +214,7 @@ class TagesschauClient:
 
         ingest_ts = datetime.utcnow().isoformat(timespec="seconds")
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
 
             cur.execute(
@@ -235,17 +242,14 @@ class TagesschauClient:
             for article in self.fetch_index():
                 stats["api_returned"] += 1
 
-                # 1) Filter: Type
                 if article.get("type") in self.filters["types"]:
                     stats["filtered_type"] += 1
                     continue
 
-                # 2) Filter: Ressort
                 if article.get("ressort") in self.filters["ressorts"]:
                     stats["filtered_ressort"] += 1
                     continue
 
-                # 3) Filter: Watermark (published_at <= effective_published_after)
                 if self.effective_published_after:
                     article_date = article.get("date")
                     if article_date and article_date <= self.effective_published_after:
