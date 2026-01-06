@@ -4,6 +4,9 @@ on:
   # Manuell startbar
   workflow_dispatch:
 
+  # Bei Pull Requests
+  pull_request:
+
   # Täglich
   schedule:
     - cron: "0 3 * * *"   # täglich 03:00 UTC
@@ -20,6 +23,8 @@ jobs:
     # Nur laufen, wenn:
     # - manuell
     # - cron
+    # - PR
+    # - Push
     # - oder Cleanup erfolgreich war
     if: >
       github.event_name != 'workflow_run' ||
@@ -46,6 +51,13 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           python reports/sql_summaries.py
+
+      - name: Publish summary to GitHub UI
+        run: |
+          echo "## 📊 SQL Summary" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat sql_summary.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload SQL summary artifact
         uses: actions/upload-artifact@v4
