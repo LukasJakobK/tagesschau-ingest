@@ -22,11 +22,13 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run ingest
-        env:
-          TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: |
-          python flows/main.py
+      env:
+        TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
+        TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        PYTHONPATH: .
+      run: |
+        python flows/main.py
+
 
 
 
