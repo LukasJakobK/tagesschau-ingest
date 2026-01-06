@@ -1,12 +1,30 @@
 name: SQL Summaries
 
 on:
+  # Manuell startbar
   workflow_dispatch:
+
+  # Täglich
   schedule:
-    - cron: "0 3 * * *"   # täglich 03:00 UTC (optional)
+    - cron: "0 3 * * *"   # täglich 03:00 UTC
+
+  # Automatisch nach Post-Cleanup
+  workflow_run:
+    workflows:
+      - Post Cleanup – Recompute Metadata
+    types:
+      - completed
 
 jobs:
   run-summaries:
+    # Nur laufen, wenn:
+    # - manuell
+    # - cron
+    # - oder Cleanup erfolgreich war
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+
     runs-on: ubuntu-latest
 
     steps:
@@ -28,3 +46,9 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           python reports/sql_summaries.py
+
+      - name: Upload SQL summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sql-summary
+          path: sql_summary.json
