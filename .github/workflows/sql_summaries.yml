@@ -4,6 +4,9 @@ on:
   # Manuell startbar
   workflow_dispatch:
 
+  # Bei jedem Push
+  push:
+
   # Bei Pull Requests
   pull_request:
 
