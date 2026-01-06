@@ -48,11 +48,15 @@ class TagesschauClient:
     # ------------------------------------------------------------------
     async def _connect(self):
         if self._db is None:
+            # libsql:// -> https://  (vermeidet WebSocket/WSS im CI)
+            http_url = self.turso_url.replace("libsql://", "https://")
+
             self._db = libsql_client.create_client(
-                url=self.turso_url,
+                url=http_url,
                 auth_token=self.turso_token,
             )
         return self._db
+
 
     async def _ensure_table(self):
         db = await self._connect()
@@ -215,6 +219,9 @@ class TagesschauClient:
     # ------------------------------------------------------------------
     # Ingest
     # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+    # Ingest
+    # ------------------------------------------------------------------
     async def collect_and_store(self) -> None:
         await self._ensure_table()
 
@@ -245,51 +252,58 @@ class TagesschauClient:
 
         db = await self._connect()
 
-        for article in self.fetch_index():
-            stats["api_returned"] += 1
+        try:
+            for article in self.fetch_index():
+                stats["api_returned"] += 1
 
-            if article.get("type") in self.filters["types"]:
-                stats["filtered_type"] += 1
-                continue
-
-            if article.get("ressort") in self.filters["ressorts"]:
-                stats["filtered_ressort"] += 1
-                continue
-
-            if self.effective_published_after:
-                article_date = article.get("date")
-                if article_date and article_date <= self.effective_published_after:
-                    stats["filtered_watermark"] += 1
+                if article.get("type") in self.filters["types"]:
+                    stats["filtered_type"] += 1
                     continue
 
-            stats["eligible"] += 1
-
-            try:
-                details = self.fetch_story_details(article["sophoraId"])
-                record = self.normalize_article(article, details)
-
-                if not record["fulltext"]:
-                    stats["no_fulltext"] += 1
+                if article.get("ressort") in self.filters["ressorts"]:
+                    stats["filtered_ressort"] += 1
                     continue
 
-                record["ingest_date"] = ingest_ts
+                if self.effective_published_after:
+                    article_date = article.get("date")
+                    if article_date and article_date <= self.effective_published_after:
+                        stats["filtered_watermark"] += 1
+                        continue
 
-                cols = ", ".join(record.keys())
-                placeholders = ", ".join(["?"] * len(record))
+                stats["eligible"] += 1
 
-                await db.execute(
-                    f"""
-                    INSERT OR IGNORE INTO {self.table_name}
-                    ({cols}) VALUES ({placeholders})
-                    """,
-                    list(record.values()),
-                )
+                try:
+                    details = self.fetch_story_details(article["sophoraId"])
+                    record = self.normalize_article(article, details)
 
-                stats["inserted"] += 1
+                    if not record["fulltext"]:
+                        stats["no_fulltext"] += 1
+                        continue
 
-            except Exception as e:
-                print("ERROR:", e)
-                stats["failed"] += 1
+                    record["ingest_date"] = ingest_ts
+
+                    cols = ", ".join(record.keys())
+                    placeholders = ", ".join(["?"] * len(record))
+
+                    await db.execute(
+                        f"""
+                        INSERT OR IGNORE INTO {self.table_name}
+                        ({cols}) VALUES ({placeholders})
+                        """,
+                        list(record.values()),
+                    )
+
+                    stats["inserted"] += 1
+
+                except Exception as e:
+                    print("ERROR:", e)
+                    stats["failed"] += 1
+
+        finally:
+            # 🔴 DB sauber am Ende schließen, NICHT im Loop
+            if self._db is not None:
+                await self._db.close()
+                self._db = None
 
         print("\n📊 TAGESSCHAU INGEST SUMMARY")
         print(f"🔹 Artikel von API (Index): {stats['api_returned']}")
@@ -300,3 +314,4 @@ class TagesschauClient:
         print(f"⏭️ Gefiltert (Typ):         {stats['filtered_type']}")
         print(f"⏭️ Gefiltert (Ressort):     {stats['filtered_ressort']}")
         print(f"⏭️ Gefiltert (Watermark):   {stats['filtered_watermark']}")
+
