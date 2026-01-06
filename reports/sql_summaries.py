@@ -1,6 +1,12 @@
 import os
 import asyncio
+import json
+from pathlib import Path
 import libsql_client
+
+
+CACHE_PATH = Path(".cache/sql_summary.json")
+CACHE_PATH.parent.mkdir(exist_ok=True)
 
 
 def require_env(name: str) -> str:
@@ -24,28 +30,56 @@ async def main():
 
     db = libsql_client.create_client(url=db_url, auth_token=token)
 
-    print("\n==============================")
-    print(" TAGESSCHAU SQL SUMMARY ")
-    print("==============================\n")
+    # --------------------------------------------------
+    # 0) Check max ingest_date first (cheap query)
+    # --------------------------------------------------
+    rs = await db.execute("SELECT MAX(ingest_date) AS d FROM articles")
+    max_ingest_date = rs.rows[0]["d"]
+
+    # --------------------------------------------------
+    # 1) If cache exists and still valid → print and exit
+    # --------------------------------------------------
+    if CACHE_PATH.exists():
+        cached = json.loads(CACHE_PATH.read_text())
+        if cached.get("max_ingest_date") == max_ingest_date:
+            print("\n==============================")
+            print(" TAGESSCHAU SQL SUMMARY (CACHED) ")
+            print("==============================\n")
+            print(cached["text"])
+            await db.close()
+            return
+
+    # --------------------------------------------------
+    # 2) Otherwise: recompute everything
+    # --------------------------------------------------
+    lines = []
+
+    def out(s=""):
+        print(s)
+        lines.append(s)
+
+    out("\n==============================")
+    out(" TAGESSCHAU SQL SUMMARY ")
+    out("==============================\n")
 
     # --------------------------------------------------
     # 1) Distinct external_ids
     # --------------------------------------------------
     rs = await db.execute("SELECT COUNT(DISTINCT external_id) AS n FROM articles")
     n_distinct_external_ids = rs.rows[0]["n"]
-    print(f"Distinct external_ids: {fmt(n_distinct_external_ids)}")
+    out(f"Distinct external_ids: {fmt(n_distinct_external_ids)}")
 
     # --------------------------------------------------
     # 2) Distinct sources
     # --------------------------------------------------
     rs = await db.execute("SELECT COUNT(DISTINCT source) AS n FROM articles")
     n_sources = rs.rows[0]["n"]
-    print(f"Distinct sources:      {fmt(n_sources)}")
+    out(f"Distinct sources:      {fmt(n_sources)}")
 
     # --------------------------------------------------
     # 3) Count per source (distinct external_ids)
     # --------------------------------------------------
-    print("\n--- Distinct external_ids per source ---")
+    out("\n--- Distinct external_ids per source ---")
     rs = await db.execute("""
         SELECT
             source,
@@ -55,12 +89,13 @@ async def main():
         ORDER BY n DESC
     """)
     for row in rs.rows:
-        print(f"{row['source']:<20} {fmt(row['n'])}")
+        src = row["source"] or "—"
+        out(f"{src:<20} {fmt(row['n'])}")
 
     # --------------------------------------------------
     # 4) Distinct ressorts + count per ressort (distinct external_ids)
     # --------------------------------------------------
-    print("\n--- Distinct external_ids per ressort ---")
+    out("\n--- Distinct external_ids per ressort ---")
     rs = await db.execute("""
         SELECT
             ressort,
@@ -70,28 +105,31 @@ async def main():
         ORDER BY n DESC
     """)
     for row in rs.rows:
-        print(f"{(row['ressort'] or 'NULL'):<30} {fmt(row['n'])}")
+        res = row["ressort"] or "NULL"
+        out(f"{res:<30} {fmt(row['n'])}")
 
     # --------------------------------------------------
     # 5) Distinct count per region_by_url + subregion_by_url
     # --------------------------------------------------
-    print("\n--- Distinct external_ids per region_by_url / subregion_by_url ---")
+    out("\n--- Distinct external_ids per region_by_url / subregion_by_url ---")
     rs = await db.execute("""
         SELECT
             region_by_url,
-            COALESCE(subregion_by_url, '—') AS subregion,
+            subregion_by_url AS subregion,
             COUNT(DISTINCT external_id) AS n
         FROM articles
         GROUP BY region_by_url, subregion_by_url
         ORDER BY n DESC
     """)
     for row in rs.rows:
-        print(f"{row['region_by_url']:<25} {row['subregion']:<25} {fmt(row['n'])}")
+        region = row["region_by_url"] or "—"
+        subregion = row["subregion"] or "—"
+        out(f"{region:<25} {subregion:<25} {fmt(row['n'])}")
 
     # --------------------------------------------------
     # 6) Distinct count per region_by_source (based on distinct external_ids)
     # --------------------------------------------------
-    print("\n--- Distinct external_ids per region_by_source ---")
+    out("\n--- Distinct external_ids per region_by_source ---")
     rs = await db.execute("""
         SELECT
             region_by_source,
@@ -101,20 +139,31 @@ async def main():
         ORDER BY n DESC
     """)
     for row in rs.rows:
-        print(f"{(row['region_by_source'] or 'NULL'):<30} {fmt(row['n'])}")
+        rbs = row["region_by_source"] or "NULL"
+        out(f"{rbs:<30} {fmt(row['n'])}")
 
     # --------------------------------------------------
     # 7) Max ingest_date
     # --------------------------------------------------
-    rs = await db.execute("SELECT MAX(ingest_date) AS d FROM articles")
-    max_ingest_date = rs.rows[0]["d"]
-    print("\nMax ingest_date:", max_ingest_date)
+    out(f"\nMax ingest_date: {max_ingest_date}")
+
+    out("\n==============================")
+    out(" END SUMMARY ")
+    out("==============================\n")
+
+    # --------------------------------------------------
+    # 3) Write cache
+    # --------------------------------------------------
+    CACHE_PATH.write_text(json.dumps(
+        {
+            "max_ingest_date": max_ingest_date,
+            "text": "\n".join(lines),
+        },
+        indent=2,
+        ensure_ascii=False,
+    ))
 
     await db.close()
-
-    print("\n==============================")
-    print(" END SUMMARY ")
-    print("==============================\n")
 
 
 if __name__ == "__main__":
