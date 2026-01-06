@@ -1,25 +1,25 @@
 import os
-import sqlite3
+import asyncio
+import libsql_client
 
-def main():
-    db_url = os.environ["TURSO_DB_URL"]
-    token = os.environ["TURSO_AUTH_TOKEN"]
+def require_env(name: str) -> str:
+    v = os.getenv(name)
+    if not v:
+        raise RuntimeError(f"Missing env var: {name}")
+    return v
 
-    conn = sqlite3.connect(
-        f"file:{db_url}?authToken={token}",
-        uri=True,
-        check_same_thread=False,
-    )
+async def main():
+    db_url = require_env("TURSO_DB_URL")
+    token = require_env("TURSO_AUTH_TOKEN")
 
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM articles")
-    cnt = cur.fetchone()[0]
-
-    print("✅ Connected to Turso")
-    print("📊 Articles in DB:", cnt)
-
-    conn.close()
+    client = libsql_client.create_client(url=db_url, auth_token=token)
+    try:
+        result = await client.execute("SELECT COUNT(*) AS cnt FROM articles")
+        print("✅ Connected to Turso")
+        print("📊 Articles in DB:", result.rows[0]["cnt"])
+    finally:
+        await client.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
+
