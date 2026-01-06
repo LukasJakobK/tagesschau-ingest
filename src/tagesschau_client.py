@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import requests
 import re
 import os
@@ -8,6 +7,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
+import libsql_client
 
 
 class TagesschauClient:
@@ -34,9 +34,13 @@ class TagesschauClient:
 
         self.table_name = table_name
 
-        # Turso / libSQL
+        # Turso
         self.turso_url = os.environ["TURSO_DB_URL"]
         self.turso_token = os.environ["TURSO_AUTH_TOKEN"]
+
+        self.db = self._connect()
+
+        self._ensure_table()
 
         self.last_ingest_date = self._get_last_ingest_date()
         self.effective_published_after = (
@@ -45,13 +49,35 @@ class TagesschauClient:
         )
 
     # ------------------------------------------------------------------
-    # DB Connection (Turso)
+    # DB (Turso)
     # ------------------------------------------------------------------
     def _connect(self):
-        return sqlite3.connect(
-            f"file:{self.turso_url}?authToken={self.turso_token}",
-            uri=True,
-            check_same_thread=False,
+        return libsql_client.create_client(
+            self.turso_url,
+            auth_token=self.turso_token,
+        )
+
+    def _ensure_table(self):
+        self.db.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                external_id TEXT PRIMARY KEY,
+                sophora_id TEXT,
+                title TEXT,
+                published_at TEXT,
+                ressort TEXT,
+                type TEXT,
+                url TEXT,
+                source TEXT,
+                region_by_api TEXT,
+                region_by_source TEXT,
+                region_by_url TEXT,
+                subregion_by_url TEXT,
+                meta_infos_multiple TEXT,
+                fulltext TEXT NOT NULL,
+                ingest_date TEXT NOT NULL
+            )
+            """
         )
 
     # ------------------------------------------------------------------
@@ -70,12 +96,12 @@ class TagesschauClient:
     # ------------------------------------------------------------------
     def _get_last_ingest_date(self) -> Optional[str]:
         try:
-            with self._connect() as conn:
-                cur = conn.cursor()
-                cur.execute(f"SELECT MAX(ingest_date) FROM {self.table_name}")
-                row = cur.fetchone()
-                return row[0] if row and row[0] else None
-        except sqlite3.OperationalError:
+            rs = self.db.execute(
+                f"SELECT MAX(ingest_date) FROM {self.table_name}"
+            )
+            row = rs.fetchone()
+            return row[0] if row and row[0] else None
+        except Exception:
             return None
 
     # ------------------------------------------------------------------
@@ -160,7 +186,6 @@ class TagesschauClient:
         subregion = None
         if idx + 1 < len(segments):
             candidate = segments[idx + 1]
-
             if "_" in candidate or "-" not in candidate:
                 subregion = candidate.replace("_", " ").split("-")[0].title()
 
@@ -214,84 +239,56 @@ class TagesschauClient:
 
         ingest_ts = datetime.utcnow().isoformat(timespec="seconds")
 
-        with self._connect() as conn:
-            cur = conn.cursor()
+        for article in self.fetch_index():
+            stats["api_returned"] += 1
 
-            cur.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {self.table_name} (
-                    external_id TEXT PRIMARY KEY,
-                    sophora_id TEXT,
-                    title TEXT,
-                    published_at TEXT,
-                    ressort TEXT,
-                    type TEXT,
-                    url TEXT,
-                    source TEXT,
-                    region_by_api TEXT,
-                    region_by_source TEXT,
-                    region_by_url TEXT,
-                    subregion_by_url TEXT,
-                    meta_infos_multiple TEXT,
-                    fulltext TEXT NOT NULL,
-                    ingest_date TEXT NOT NULL
+            if article.get("type") in self.filters["types"]:
+                stats["filtered_type"] += 1
+                continue
+
+            if article.get("ressort") in self.filters["ressorts"]:
+                stats["filtered_ressort"] += 1
+                continue
+
+            if self.effective_published_after:
+                article_date = article.get("date")
+                if article_date and article_date <= self.effective_published_after:
+                    stats["filtered_watermark"] += 1
+                    continue
+
+            stats["eligible"] += 1
+
+            try:
+                details = self.fetch_story_details(article["sophoraId"])
+                record = self.normalize_article(article, details)
+
+                if not record["fulltext"]:
+                    stats["no_fulltext"] += 1
+                    continue
+
+                record["ingest_date"] = ingest_ts
+
+                cols = ", ".join(record.keys())
+                placeholders = ", ".join(["?"] * len(record))
+
+                self.db.execute(
+                    f"""
+                    INSERT OR IGNORE INTO {self.table_name}
+                    ({cols}) VALUES ({placeholders})
+                    """,
+                    list(record.values()),
                 )
-                """
-            )
 
-            for article in self.fetch_index():
-                stats["api_returned"] += 1
+                stats["inserted"] += 1
 
-                if article.get("type") in self.filters["types"]:
-                    stats["filtered_type"] += 1
-                    continue
-
-                if article.get("ressort") in self.filters["ressorts"]:
-                    stats["filtered_ressort"] += 1
-                    continue
-
-                if self.effective_published_after:
-                    article_date = article.get("date")
-                    if article_date and article_date <= self.effective_published_after:
-                        stats["filtered_watermark"] += 1
-                        continue
-
-                stats["eligible"] += 1
-
-                try:
-                    details = self.fetch_story_details(article["sophoraId"])
-                    record = self.normalize_article(article, details)
-
-                    if not record["fulltext"]:
-                        stats["no_fulltext"] += 1
-                        continue
-
-                    record["ingest_date"] = ingest_ts
-
-                    cur.execute(
-                        f"""
-                        INSERT OR IGNORE INTO {self.table_name}
-                        ({", ".join(record.keys())})
-                        VALUES ({", ".join("?" for _ in record)})
-                        """,
-                        tuple(record.values()),
-                    )
-
-                    if cur.rowcount:
-                        stats["inserted"] += 1
-                    else:
-                        stats["duplicates"] += 1
-
-                except Exception:
-                    stats["failed"] += 1
-
-            conn.commit()
+            except Exception as e:
+                print("ERROR:", e)
+                stats["failed"] += 1
 
         print("\n📊 TAGESSCHAU INGEST SUMMARY")
         print(f"🔹 Artikel von API (Index): {stats['api_returned']}")
         print(f"🕒 Nach Watermark relevant: {stats['eligible']}")
         print(f"💾 Artikel gespeichert:     {stats['inserted']}")
-        print(f"♻️ Duplikate ignoriert:     {stats['duplicates']}")
         print(f"📄 Kein Fulltext:           {stats['no_fulltext']}")
         print(f"❌ Fehlgeschlagen:          {stats['failed']}")
         print(f"⏭️ Gefiltert (Typ):         {stats['filtered_type']}")
