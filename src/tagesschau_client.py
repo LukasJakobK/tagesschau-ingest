@@ -5,7 +5,7 @@ import os
 from html import unescape
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 import libsql_client
 
@@ -21,7 +21,11 @@ class TagesschauClient:
         url_region_keywords_path: str,
         filters_path: str,
         table_name: str = "articles",
+        connect_db: bool = True,   # 👈 NEU
     ) -> None:
+        # ----------------------------
+        # Load configs
+        # ----------------------------
         self.api_config = self._load_json(api_config_path)
         self.region_map = self._load_json(regions_path)
         self.source_region_map = self._load_json(source_regions_path)
@@ -34,9 +38,15 @@ class TagesschauClient:
 
         self.table_name = table_name
 
-        # Turso
-        self.turso_url = os.environ["TURSO_DB_URL"]
-        self.turso_token = os.environ["TURSO_AUTH_TOKEN"]
+        # ----------------------------
+        # Turso config
+        # ----------------------------
+        self.turso_url = os.environ.get("TURSO_DB_URL")
+        self.turso_token = os.environ.get("TURSO_AUTH_TOKEN")
+
+        if connect_db:
+            if not self.turso_url or not self.turso_token:
+                raise RuntimeError("Missing TURSO_DB_URL or TURSO_AUTH_TOKEN")
 
         self._db = None
 
@@ -48,7 +58,6 @@ class TagesschauClient:
     # ------------------------------------------------------------------
     async def _connect(self):
         if self._db is None:
-            # libsql:// -> https://  (vermeidet WebSocket/WSS im CI)
             http_url = self.turso_url.replace("libsql://", "https://")
 
             self._db = libsql_client.create_client(
@@ -57,6 +66,10 @@ class TagesschauClient:
             )
         return self._db
 
+    async def _close(self):
+        if self._db is not None:
+            await self._db.close()
+            self._db = None
 
     async def _ensure_table(self):
         db = await self._connect()
@@ -86,10 +99,10 @@ class TagesschauClient:
         try:
             db = await self._connect()
             rs = await db.execute(
-                f"SELECT MAX(ingest_date) FROM {self.table_name}"
+                f"SELECT MAX(ingest_date) AS d FROM {self.table_name}"
             )
             row = rs.rows[0] if rs.rows else None
-            return row[0] if row and row[0] else None
+            return row["d"] if row and row["d"] else None
         except Exception:
             return None
 
@@ -138,7 +151,7 @@ class TagesschauClient:
         return "\n\n".join(parts)
 
     # ------------------------------------------------------------------
-    # Region handling
+    # Metadata logic (SINGLE SOURCE OF TRUTH)
     # ------------------------------------------------------------------
     def _region_by_api(self, region_ids: Optional[List[int]]) -> str:
         if not region_ids:
@@ -159,7 +172,7 @@ class TagesschauClient:
     def _region_by_source(self, source: str) -> str:
         return self.source_region_map.get(source, self.source_region_map.get("unknown", "Unbekannt"))
 
-    def _region_by_url(self, url: Optional[str]) -> tuple[str, Optional[str]]:
+    def _region_by_url(self, url: Optional[str]) -> Tuple[str, Optional[str]]:
         if not url:
             return "Bundesweit", None
 
@@ -191,13 +204,20 @@ class TagesschauClient:
 
         return bundesland, subregion
 
+    # 🔥 ZENTRALER HELPER FÜR INGEST + POST-CLEANUP
+    def recompute_metadata_from_url(self, url: Optional[str]) -> Tuple[str, str, str, Optional[str]]:
+        source = self._source_from_url(url)
+        region_by_source = self._region_by_source(source)
+        region_by_url, subregion_by_url = self._region_by_url(url)
+        return source, region_by_source, region_by_url, subregion_by_url
+
     # ------------------------------------------------------------------
     # Normalization
     # ------------------------------------------------------------------
     def normalize_article(self, index_article: Dict, details: Dict) -> Dict:
         url = index_article.get("shareURL")
-        source = self._source_from_url(url)
-        region_url, subregion_url = self._region_by_url(url)
+
+        source, region_by_source, region_by_url, subregion_by_url = self.recompute_metadata_from_url(url)
 
         return {
             "external_id": index_article.get("externalId"),
@@ -209,17 +229,14 @@ class TagesschauClient:
             "url": url,
             "source": source,
             "region_by_api": self._region_by_api(index_article.get("regions")),
-            "region_by_source": self._region_by_source(source),
-            "region_by_url": region_url,
-            "subregion_by_url": subregion_url,
+            "region_by_source": region_by_source,
+            "region_by_url": region_by_url,
+            "subregion_by_url": subregion_by_url,
             "meta_infos_multiple": json.dumps({}, ensure_ascii=False),
             "fulltext": self.extract_fulltext(details),
         }
 
     # ------------------------------------------------------------------
-    # Ingest
-    # ------------------------------------------------------------------
-        # ------------------------------------------------------------------
     # Ingest
     # ------------------------------------------------------------------
     async def collect_and_store(self) -> None:
@@ -243,7 +260,6 @@ class TagesschauClient:
             "filtered_ressort": 0,
             "filtered_watermark": 0,
             "inserted": 0,
-            "duplicates": 0,
             "no_fulltext": 0,
             "failed": 0,
         }
@@ -300,10 +316,7 @@ class TagesschauClient:
                     stats["failed"] += 1
 
         finally:
-            # 🔴 DB sauber am Ende schließen, NICHT im Loop
-            if self._db is not None:
-                await self._db.close()
-                self._db = None
+            await self._close()
 
         print("\n📊 TAGESSCHAU INGEST SUMMARY")
         print(f"🔹 Artikel von API (Index): {stats['api_returned']}")
@@ -314,4 +327,3 @@ class TagesschauClient:
         print(f"⏭️ Gefiltert (Typ):         {stats['filtered_type']}")
         print(f"⏭️ Gefiltert (Ressort):     {stats['filtered_ressort']}")
         print(f"⏭️ Gefiltert (Watermark):   {stats['filtered_watermark']}")
-
