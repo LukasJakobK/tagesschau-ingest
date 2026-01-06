@@ -1,0 +1,31 @@
+name: Post Cleanup – Recompute Metadata
+
+on:
+  workflow_dispatch:   # 👈 Manuell startbar
+  push:
+    paths:
+      - "config/**/*.json"   # 👈 Läuft automatisch wenn Mappings geändert werden
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run post cleanup
+        env:
+          TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python flows/post_cleanup_recompute_metadata.py
