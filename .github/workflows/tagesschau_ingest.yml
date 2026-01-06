@@ -19,12 +19,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r Docker_Container/requirements.txt
 
-        - name: Run ingest
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PWD/Docker_Container" >> $GITHUB_ENV
+
+      - name: Run ingest
         env:
           TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
-          python flows/main.py
+          python Docker_Container/flows/main.py
+
 
