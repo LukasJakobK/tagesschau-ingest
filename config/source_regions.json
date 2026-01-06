@@ -1,0 +1,40 @@
+{
+    "tagesschau": "Bundesweit",
+    "ard": "Bundesweit",
+  
+    "rbb24": "Berlin & Brandenburg",
+    "rbb": "Berlin & Brandenburg",
+  
+    "swr": "Baden-Württemberg & Rheinland-Pfalz",
+    "swraktuell": "Baden-Württemberg & Rheinland-Pfalz",
+  
+    "ndr": "Hamburg, Niedersachsen, Schleswig-Holstein & Mecklenburg-Vorpommern",
+    "ndrinfo": "Hamburg, Niedersachsen, Schleswig-Holstein & Mecklenburg-Vorpommern",
+  
+    "wdr": "Nordrhein-Westfalen",
+    "wdraktuell": "Nordrhein-Westfalen",
+  
+    "br": "Bayern",
+    "br24": "Bayern",
+  
+    "hr": "Hessen",
+    "hessenschau": "Hessen",
+  
+    "mdr": "Sachsen, Sachsen-Anhalt & Thüringen",
+    "mdraktuell": "Sachsen, Sachsen-Anhalt & Thüringen",
+  
+    "sr": "Saarland",
+    "srinfo": "Saarland",
+  
+    "radio-bremen": "Bremen",
+    "bremeneins": "Bremen",
+  
+    "phoenix": "Bundesweit",
+    "ardalpha": "Bundesweit",
+    "ardmediathek": "Bundesweit",
+  
+    "dw": "International",
+  
+    "unknown": "Unbekannt"
+  }
+  

@@ -1,0 +1,7 @@
+{
+    "exclude": {
+      "types": ["video"],
+      "ressorts": ["sport", "video"]
+    }
+  }
+  

@@ -1,0 +1,9 @@
+{
+  "base_index_url": "https://www.tagesschau.de/api2u/news/",
+  "base_detail_url": "https://www.tagesschau.de/api2u/story/{sophora_id}.json",
+  "timeout": 10,
+
+  "published_after": "2026-01-01T00:00:00"
+}
+
+  
