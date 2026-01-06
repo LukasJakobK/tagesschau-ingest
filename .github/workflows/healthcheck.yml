@@ -1,15 +1,38 @@
 name: Turso Healthcheck
 
 on:
-  workflow_dispatch:   # 👈 Manuell startbar
+  # Manuell startbar
+  workflow_dispatch:
+
+  # Bei jedem Push
   push:
-    paths:
-      - "config/**/*.json"   # 👈 Bei JSON-Änderungen
+
+  # Bei Pull Requests
+  pull_request:
+
+  # Täglich
   schedule:
-    - cron: "0 6 * * *"      # 👈 Jeden Tag um 06:00 UTC
+    - cron: "0 6 * * *"   # täglich 06:00 UTC
+
+  # Automatisch nach Post-Cleanup
+  workflow_run:
+    workflows:
+      - Post Cleanup – Recompute Metadata
+    types:
+      - completed
 
 jobs:
   healthcheck:
+    # Nur laufen, wenn:
+    # - manuell
+    # - cron
+    # - PR
+    # - Push
+    # - oder Cleanup erfolgreich war
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+
     runs-on: ubuntu-latest
 
     steps:
