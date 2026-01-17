@@ -1,0 +1,25 @@
+{
+    "table": "articles",
+    "columns": {
+      "external_id": { "role": "payload" },
+      "title":       { "role": "payload" },
+      "published_at":{ "role": "payload" },
+      "ressort":     { "role": "payload" },
+      "type":        { "role": "payload" },
+      "url":         { "role": "payload" },
+      "source":      { "role": "payload" },
+      "region_by_url":      { "role": "payload" },
+      "subregion_by_url":   { "role": "payload" },
+      "region_by_api":      { "role": "payload" },
+      "region_by_source":   { "role": "payload" },
+  
+      "fulltext": {
+        "role": "embedding"
+      },
+  
+      "meta_infos_multiple": { "role": "ignore" },
+      "sophora_id":          { "role": "ignore" },
+      "ingest_date":         { "role": "ignore" }
+    }
+  }
+  

@@ -180,7 +180,6 @@ class TagesschauClient:
 
         bundesland = None
         matched_key = None
-
         for key, value in self.url_region_keywords.items():
             if f"/{key}/" in path:
                 bundesland = value
@@ -196,12 +195,20 @@ class TagesschauClient:
 
         idx = segments.index(matched_key)
 
-        subregion = None
-        if idx + 1 < len(segments):
-            candidate = segments[idx + 1]
-            if "_" in candidate or "-" not in candidate:
-                subregion = candidate.replace("_", " ").split("-")[0].title()
+        if idx + 1 >= len(segments):
+            return bundesland, None
 
+        candidate = segments[idx + 1].strip()
+
+        # 1) Normalisieren: "_" und "-" zu Leerzeichen, Mehrfachspaces zusammenziehen
+        cleaned = re.sub(r"[_-]+", " ", candidate).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+
+        # 2) Ungültig, wenn leer oder keine Buchstaben
+        if not cleaned or not re.search(r"[a-zA-Z]", cleaned):
+            return bundesland, None
+
+        subregion = cleaned.title()  # "rhein main" -> "Rhein Main"
         return bundesland, subregion
 
     # 🔥 ZENTRALER HELPER FÜR INGEST + POST-CLEANUP
