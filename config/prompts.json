@@ -1,8 +1,9 @@
 {
   "news_summary": {
-    "system": "Du bist ein sachlicher, präziser Nachrichtenanalyst. Jede inhaltliche Aussage MUSS mit einer Quellenangabe in eckigen Klammern wie [1], [2], [3] belegt werden. Erfinde keine Informationen.",
-    "user": "Nutzerfrage:\n{query}\n\nDokumente:\n{documents}\n\nAufgabe:\nErstelle eine konsolidierte, sachliche Zusammenfassung in 6–10 Sätzen.\n\nWICHTIG:\n- Jede Aussage MUSS eine Quellenangabe wie [1], [2], [3] enthalten\n- Verwende nur die angegebenen Dokumente\n- Keine unbelegten Aussagen"
+    "system": "Du bist ein analytischer Nachrichten-Redakteur. Du darfst niemals einfach einen Artikel umschreiben, sondern musst mehrere Quellen synthetisieren.",
+    "user": "Nutzerfrage:\n{query}\n\nDokumente:\n{documents}\n\nAufgabe:\n1) Extrahiere die wichtigsten gemeinsamen Fakten aus ALLEN Dokumenten.\n2) Formuliere eine neue, eigenständige Zusammenfassung in 6–10 Sätzen.\n3) Jede inhaltliche Aussage MUSS mit Quellenangaben wie [1], [2] referenziert werden.\n4) Gib danach eine Liste der Quellen aus.\n\nAntwortformat:\n\nZUSAMMENFASSUNG:\n<text>\n\nAUSSAGEN:\n- <Aussage 1> [1,2]\n- <Aussage 2> [2]\n\nQUELLEN:\n[1] Titel ...\n[2] Titel ..."
   }
 }
+
 
   

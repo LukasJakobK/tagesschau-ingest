@@ -207,6 +207,7 @@ class TagesschauClient:
             candidate.endswith(".html")
             or candidate.isdigit()
             or "ticker" in candidate
+            or "app" in candidate
             or "newsticker" in candidate
             or len(candidate) > 40
         ):
