@@ -31,6 +31,8 @@ class TagesschauClient:
         self.source_region_map = self._load_json(source_regions_path)
         self.url_region_keywords = self._load_json(url_region_keywords_path)
         self.filters = self._load_json(filters_path)["exclude"]
+        self.url_subregion_blacklist = self._load_json("config/blacklist_url_region.json")
+
 
         self.base_index_url = self.api_config["base_index_url"]
         self.base_detail_url = self.api_config["base_detail_url"]
@@ -172,52 +174,54 @@ class TagesschauClient:
     def _region_by_source(self, source: str) -> str:
         return self.source_region_map.get(source, self.source_region_map.get("unknown", "Unbekannt"))
 
-    def _region_by_url(self, url: Optional[str]) -> Tuple[str, Optional[str]]:
-        if not url:
-            return "Bundesweit", None
+    def _region_by_url(self, url: str) -> tuple[str, Optional[str]]:
+        path = urlparse(url).path.lower().strip("/")
+        segments = [s for s in path.split("/") if s]
 
-        path = urlparse(url).path.lower()
-
+        # 1) Bundesland finden
         bundesland = None
         matched_key = None
 
         for key, value in self.url_region_keywords.items():
-            if f"/{key}/" in path:
+            if key in segments:
                 bundesland = value
                 matched_key = key
                 break
 
-        if not bundesland or not matched_key:
+        if not bundesland:
             return "Bundesweit", None
-
-        segments = path.strip("/").split("/")
-        if matched_key not in segments:
-            return bundesland, None
 
         idx = segments.index(matched_key)
 
-        # Kein weiteres Segment → keine Subregion
+        # 2) Kein Segment danach → keine Subregion
         if idx + 1 >= len(segments):
             return bundesland, None
 
         candidate = segments[idx + 1]
 
-        # ❌ harte Filter
+        # 3) Harte syntaktische Ausschlüsse
         if (
             candidate.endswith(".html")
-            or candidate.isdigit()
-            or "ticker" in candidate
-            or "app" in candidate
-            or "newsticker" in candidate
-            or len(candidate) > 40
+            or any(c.isdigit() for c in candidate)
+            or len(candidate) > 32
         ):
             return bundesland, None
 
-        # Normalisieren
+        # 4) Blacklist aus JSON
+        bl = self.url_subregion_blacklist
+
+        if candidate in bl.get("exact", []):
+            return bundesland, None
+
+        if any(bad in candidate for bad in bl.get("contains", [])):
+            return bundesland, None
+
+        # 5) Normalisieren
         cleaned = re.sub(r"[_-]+", " ", candidate).strip()
         cleaned = re.sub(r"\s+", " ", cleaned)
 
-        if not cleaned or not re.search(r"[a-zA-Z]", cleaned):
+        # 6) Muss wie Ortsname aussehen
+        if not re.search(r"[a-zA-ZäöüÄÖÜ]", cleaned):
             return bundesland, None
 
         subregion = cleaned.title()

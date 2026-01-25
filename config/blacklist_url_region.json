@@ -1,0 +1,17 @@
+{
+    "contains": [
+      "ticker",
+      "newsticker",
+      "news",
+      "trend",
+      "thema",
+      "themen",
+      "app",
+      "video",
+      "live",
+      "bilder",
+      "galerie",
+      "dossier"
+    ]
+  }
+  
