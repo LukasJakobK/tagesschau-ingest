@@ -1,0 +1,15 @@
+{
+    "geopolitics": {
+      "label": "Geopolitik",
+      "default_topic": "Geopolitische Entwicklungen und internationale Konflikte"
+    },
+    "economy": {
+      "label": "Wirtschaft",
+      "default_topic": "Makroökonomische Entwicklungen und wirtschaftliche Risiken"
+    },
+    "markets": {
+      "label": "Finanzmärkte",
+      "default_topic": "Auswirkungen auf Finanzmärkte und Investoren"
+    }
+  }
+  

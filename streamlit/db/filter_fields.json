@@ -1,0 +1,41 @@
+{
+  "fields": {
+    "source": {
+      "operators": ["=", "!="],
+      "ui": "dropdown"
+    },
+    "ressort": {
+      "operators": ["=", "!="],
+      "ui": "dropdown"
+    },
+    "published_at": {
+      "operators": [">=", "<=", "BETWEEN"],
+      "ui": "date"
+    },
+    "region_by_url": {
+      "operators": ["="],
+      "ui": "dropdown"
+    },
+    "subregion_by_url": {
+      "operators": ["="],
+      "ui": "subregion_dropdown"
+    },
+    "title": {
+      "operators": ["LIKE"],
+      "ui": "text"
+    },
+    "url": {
+      "operators": ["LIKE"],
+      "ui": "text"
+    }
+  },
+  "field_sql": {
+    "source": "source",
+    "ressort": "ressort",
+    "published_at": "published_at",
+    "region_by_url": "region_by_url",
+    "subregion_by_url": "subregion_by_url",
+    "title": "title",
+    "url": "url"
+  }
+}
