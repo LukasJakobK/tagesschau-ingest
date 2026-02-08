@@ -30,4 +30,4 @@ jobs:
           QADRANT_ENDPOINT: ${{ secrets.QADRANT_ENDPOINT }}
           QADRANT_API_KEY: ${{ secrets.QADRANT_API_KEY }}
         run: |
-          python -m flows/embeddings.py
+          python flows/embeddings.py

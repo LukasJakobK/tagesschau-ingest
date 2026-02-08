@@ -1,0 +1,23 @@
+{
+    "strategy": "vector | hybrid | metadata",
+    "queries": [
+      {
+        "text": "string",
+        "weight": 1.0
+      }
+    ],
+    "filters": {
+      "published_at": { "gte": "YYYY-MM-DD", "lte": "YYYY-MM-DD" },
+      "region_by_url": ["string"],
+      "subregion_by_url": ["string"],
+      "region_by_api": ["string"],
+      "region_by_source": ["string"],
+      "source": ["string"],
+      "ressort": ["string"],
+      "type": ["string"]
+    },
+    "top_k": 25,
+    "sort": "relevance | time_desc",
+    "notes": "kurze Begründung der Entscheidung"
+  }
+  
