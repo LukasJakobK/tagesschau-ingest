@@ -3,6 +3,7 @@
 import os
 import uuid
 import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
 
@@ -58,14 +59,14 @@ def build_embedding_text(row: dict, schema: dict) -> str:
 
 
 # ------------------------------------------------------------
-# MAIN ENTRYPOINT
+# MAIN ENTRYPOINT (ASYNC)
 # ------------------------------------------------------------
-def main() -> None:
+async def main() -> None:
     # ---- ENV (fail fast)
     TURSO_DB_URL = os.environ["TURSO_DB_URL"].replace("libsql://", "https://")
     TURSO_AUTH_TOKEN = os.environ["TURSO_AUTH_TOKEN"]
-    QDRANT_URL = os.environ["QADRANT_ENDPOINT"]
-    QDRANT_API_KEY = os.environ["QADRANT_API_KEY"]
+    QDRANT_URL = os.environ["QDRANT_ENDPOINT"]
+    QDRANT_API_KEY = os.environ["QDRANT_API_KEY"]
 
     # ---- Clients
     db = libsql_client.create_client(
@@ -91,7 +92,7 @@ def main() -> None:
         LIMIT {BATCH_SIZE}
     """
 
-    rs = db.execute(SELECT_SQL)
+    rs = await db.execute(SELECT_SQL)
 
     if not rs.rows:
         print("🟢 No new articles to embed.")
@@ -138,7 +139,7 @@ def main() -> None:
     )
 
     placeholders = ",".join(["?"] * len(external_ids))
-    db.execute(
+    await db.execute(
         f"""
         UPDATE articles
         SET embedded_at = CURRENT_TIMESTAMP
@@ -150,5 +151,8 @@ def main() -> None:
     print(f"✅ Embedded {len(external_ids)} new articles.")
 
 
+# ------------------------------------------------------------
+# BOOTSTRAP
+# ------------------------------------------------------------
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
