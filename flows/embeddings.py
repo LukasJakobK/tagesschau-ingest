@@ -3,6 +3,7 @@
 import os
 import uuid
 import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
 
@@ -38,127 +39,115 @@ def stable_point_id(external_id: str) -> str:
 
 
 def build_payload(row: dict, schema: dict) -> dict:
-    payload = {}
-    for col, cfg in schema["columns"].items():
-        if cfg["role"] == "payload":
-            val = row.get(col)
-            if val is not None:
-                payload[col] = val
-    return payload
+    return {
+        col: row[col]
+        for col, cfg in schema["columns"].items()
+        if cfg["role"] == "payload" and row.get(col) is not None
+    }
 
 
 def build_embedding_text(row: dict, schema: dict) -> str:
-    parts = []
-    for col, cfg in schema["columns"].items():
-        if cfg["role"] == "embedding":
-            val = row.get(col)
-            if val:
-                parts.append(str(val))
-    return "\n\n".join(parts)
+    return "\n\n".join(
+        str(row[col])
+        for col, cfg in schema["columns"].items()
+        if cfg["role"] == "embedding" and row.get(col)
+    )
 
 
 # ------------------------------------------------------------
-# MAIN (SYNC, CI-SAFE)
+# MAIN (ASYNC – REQUIRED FOR libsql_client)
 # ------------------------------------------------------------
-def main() -> None:
-    # ---- ENV
+async def main() -> None:
     TURSO_DB_URL = os.environ["TURSO_DB_URL"].replace("libsql://", "https://")
     TURSO_AUTH_TOKEN = os.environ["TURSO_AUTH_TOKEN"]
     QDRANT_URL = os.environ["QADRANT_ENDPOINT"]
     QDRANT_API_KEY = os.environ["QADRANT_API_KEY"]
 
-    # ---- Clients (SYNC ONLY)
     db = libsql_client.create_client(
         url=TURSO_DB_URL,
         auth_token=TURSO_AUTH_TOKEN,
     )
 
-    qdrant = QdrantClient(
-        url=QDRANT_URL,
-        api_key=QDRANT_API_KEY,
-        check_compatibility=False,  # CI-stabil
-    )
+    try:
+        qdrant = QdrantClient(
+            url=QDRANT_URL,
+            api_key=QDRANT_API_KEY,
+            check_compatibility=False,
+        )
 
-    embedder = SentenceTransformer(EMBED_MODEL_NAME)
+        embedder = SentenceTransformer(EMBED_MODEL_NAME)
 
-    # ---- Query
-    SELECT_SQL = f"""
-        SELECT *
-        FROM articles
-        WHERE
-            fulltext IS NOT NULL
-            AND embedded_at IS NULL
-        ORDER BY published_at ASC
-        LIMIT {BATCH_SIZE}
-    """
+        rs = await db.execute(f"""
+            SELECT *
+            FROM articles
+            WHERE fulltext IS NOT NULL
+              AND embedded_at IS NULL
+            ORDER BY published_at ASC
+            LIMIT {BATCH_SIZE}
+        """)
 
-    rs = db.execute(SELECT_SQL)
+        if not rs.rows:
+            print("🟢 No new articles to embed.")
+            return
 
-    if not rs.rows:
-        print("🟢 No new articles to embed.")
-        return
+        rows = [dict(zip(rs.columns, r)) for r in rs.rows]
 
-    rows = [dict(zip(rs.columns, r)) for r in rs.rows]
+        texts = [
+            build_embedding_text(row, ARTICLE_SCHEMA)[:MAX_CHARS]
+            for row in rows
+        ]
 
-    texts = [
-        build_embedding_text(row, ARTICLE_SCHEMA)[:MAX_CHARS]
-        for row in rows
-    ]
+        embeddings = embedder.encode(
+            texts,
+            batch_size=64,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
 
-    embeddings = embedder.encode(
-        texts,
-        batch_size=64,
-        normalize_embeddings=True,
-        show_progress_bar=False,
-    )
+        points = []
+        external_ids = []
 
-    points = []
-    external_ids = []
+        for i, row in enumerate(rows):
+            external_id = row["external_id"]
+            external_ids.append(external_id)
 
-    for i, row in enumerate(rows):
-        external_id = row["external_id"]
-        external_ids.append(external_id)
-
-        payload = build_payload(row, ARTICLE_SCHEMA)
-        payload.update(
-            {
+            payload = build_payload(row, ARTICLE_SCHEMA)
+            payload.update({
                 "embedded_at": datetime.utcnow().isoformat(),
                 "embedding_model": EMBED_MODEL_NAME,
-            }
-        )
+            })
 
-        points.append(
-            PointStruct(
-                id=stable_point_id(external_id),
-                vector=embeddings[i].tolist(),
-                payload=payload,
+            points.append(
+                PointStruct(
+                    id=stable_point_id(external_id),
+                    vector=embeddings[i].tolist(),
+                    payload=payload,
+                )
             )
+
+        qdrant.upsert(
+            collection_name=COLLECTION_NAME,
+            points=points,
         )
 
-    # ---- Qdrant upsert
-    qdrant.upsert(
-        collection_name=COLLECTION_NAME,
-        points=points,
-    )
+        placeholders = ",".join(["?"] * len(external_ids))
+        await db.execute(
+            f"""
+            UPDATE articles
+            SET embedded_at = CURRENT_TIMESTAMP
+            WHERE external_id IN ({placeholders})
+            """,
+            external_ids,
+        )
 
-    # ---- Mark embedded
-    placeholders = ",".join(["?"] * len(external_ids))
-    db.execute(
-        f"""
-        UPDATE articles
-        SET embedded_at = CURRENT_TIMESTAMP
-        WHERE external_id IN ({placeholders})
-        """,
-        external_ids,
-    )
+        print(f"✅ Embedded {len(external_ids)} new articles.")
 
-    db.close()
-
-    print(f"✅ Embedded {len(external_ids)} new articles.")
+    finally:
+        await db.close()
 
 
 # ------------------------------------------------------------
 # BOOTSTRAP
 # ------------------------------------------------------------
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
