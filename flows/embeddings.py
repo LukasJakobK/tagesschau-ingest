@@ -65,8 +65,8 @@ async def main() -> None:
     # ---- ENV (fail fast)
     TURSO_DB_URL = os.environ["TURSO_DB_URL"].replace("libsql://", "https://")
     TURSO_AUTH_TOKEN = os.environ["TURSO_AUTH_TOKEN"]
-    QDRANT_URL = os.environ["QDRANT_ENDPOINT"]
-    QDRANT_API_KEY = os.environ["QDRANT_API_KEY"]
+    QADRANT_URL = os.environ["QADRANT_ENDPOINT"]
+    QADRANT_API_KEY = os.environ["QADRANT_API_KEY"]
 
     # ---- Clients
     db = libsql_client.create_client(
@@ -75,8 +75,8 @@ async def main() -> None:
     )
 
     qdrant = QdrantClient(
-        url=QDRANT_URL,
-        api_key=QDRANT_API_KEY,
+        url=QADRANT_URL,
+        api_key=QADRANT_API_KEY,
     )
 
     embedder = SentenceTransformer(EMBED_MODEL_NAME)
