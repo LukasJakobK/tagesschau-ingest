@@ -22,7 +22,15 @@ jobs:
         run: |
             python -m pip install --upgrade pip
             python -m pip install -r requirements.txt
-
+      - name: Debug requirements + commit
+        run: |
+              echo "COMMIT:"
+              git rev-parse HEAD
+              echo "DATE:"
+              git show -s --format=%ci HEAD
+              echo "REQUIREMENTS:"
+              sed -n '1,200p' requirements.txt
+    
       - name: Run daily embeddings
         env:
           TURSO_DB_URL: ${{ secrets.TURSO_DB_URL }}
