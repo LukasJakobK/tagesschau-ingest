@@ -3,7 +3,6 @@
 import os
 import uuid
 import json
-import asyncio
 from datetime import datetime
 from pathlib import Path
 
@@ -59,29 +58,30 @@ def build_embedding_text(row: dict, schema: dict) -> str:
 
 
 # ------------------------------------------------------------
-# MAIN ENTRYPOINT (ASYNC)
+# MAIN (SYNC, CI-SAFE)
 # ------------------------------------------------------------
-async def main() -> None:
-    # ---- ENV (fail fast)
+def main() -> None:
+    # ---- ENV
     TURSO_DB_URL = os.environ["TURSO_DB_URL"].replace("libsql://", "https://")
     TURSO_AUTH_TOKEN = os.environ["TURSO_AUTH_TOKEN"]
-    QADRANT_URL = os.environ["QADRANT_ENDPOINT"]
-    QADRANT_API_KEY = os.environ["QADRANT_API_KEY"]
+    QDRANT_URL = os.environ["QADRANT_ENDPOINT"]
+    QDRANT_API_KEY = os.environ["QADRANT_API_KEY"]
 
-    # ---- Clients
+    # ---- Clients (SYNC ONLY)
     db = libsql_client.create_client(
         url=TURSO_DB_URL,
         auth_token=TURSO_AUTH_TOKEN,
     )
 
     qdrant = QdrantClient(
-        url=QADRANT_URL,
-        api_key=QADRANT_API_KEY,
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY,
+        check_compatibility=False,  # CI-stabil
     )
 
     embedder = SentenceTransformer(EMBED_MODEL_NAME)
 
-    # ---- Select only NEW articles
+    # ---- Query
     SELECT_SQL = f"""
         SELECT *
         FROM articles
@@ -92,7 +92,7 @@ async def main() -> None:
         LIMIT {BATCH_SIZE}
     """
 
-    rs = await db.execute(SELECT_SQL)
+    rs = db.execute(SELECT_SQL)
 
     if not rs.rows:
         print("🟢 No new articles to embed.")
@@ -120,10 +120,12 @@ async def main() -> None:
         external_ids.append(external_id)
 
         payload = build_payload(row, ARTICLE_SCHEMA)
-        payload.update({
-            "embedded_at": datetime.utcnow().isoformat(),
-            "embedding_model": EMBED_MODEL_NAME,
-        })
+        payload.update(
+            {
+                "embedded_at": datetime.utcnow().isoformat(),
+                "embedding_model": EMBED_MODEL_NAME,
+            }
+        )
 
         points.append(
             PointStruct(
@@ -133,13 +135,15 @@ async def main() -> None:
             )
         )
 
+    # ---- Qdrant upsert
     qdrant.upsert(
         collection_name=COLLECTION_NAME,
         points=points,
     )
 
+    # ---- Mark embedded
     placeholders = ",".join(["?"] * len(external_ids))
-    await db.execute(
+    db.execute(
         f"""
         UPDATE articles
         SET embedded_at = CURRENT_TIMESTAMP
@@ -148,6 +152,8 @@ async def main() -> None:
         external_ids,
     )
 
+    db.close()
+
     print(f"✅ Embedded {len(external_ids)} new articles.")
 
 
@@ -155,4 +161,4 @@ async def main() -> None:
 # BOOTSTRAP
 # ------------------------------------------------------------
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
