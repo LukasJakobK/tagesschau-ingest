@@ -1,8 +1,8 @@
 name: Daily Embeddings to Quadrant
 
 on:
-  schedule:
-    - cron: "0 3 * * *"   # täglich 03:00 UTC
+  #schedule:
+    #- cron: "0 3 * * *"   # täglich 03:00 UTC
   workflow_dispatch:
 
 jobs:
